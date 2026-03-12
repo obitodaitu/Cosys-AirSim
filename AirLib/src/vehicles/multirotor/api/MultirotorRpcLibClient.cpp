@@ -248,7 +248,7 @@ __pragma(warning(disable : 4239))
         //cancellation or timeout
         MultirotorRpcLibClient* MultirotorRpcLibClient::waitOnLastTask(bool* task_result, float timeout_sec)
         {
-            bool result;
+            /*bool result;
             if (std::isnan(timeout_sec) || timeout_sec == Utils::max<float>())
                 result = pimpl_->last_future.get().as<bool>();
             else {
@@ -257,6 +257,46 @@ __pragma(warning(disable : 4239))
                     result = pimpl_->last_future.get().as<bool>();
                 else
                     result = false;
+            }
+
+            if (task_result)
+                *task_result = result;
+
+            return this;*/
+
+
+            bool result = false;
+
+            // 1. 核心防御：检查 future 是否有效
+            if (!pimpl_->last_future.valid()) {
+                if (task_result) *task_result = false;
+                return this;
+            }
+
+            try {
+                if (std::isnan(timeout_sec) || timeout_sec == Utils::max<float>()) {
+                    // get() 会阻塞直到任务完成或抛出异常
+                    result = pimpl_->last_future.get().as<bool>();
+                }
+                else {
+                    auto future_status = pimpl_->last_future.wait_for(std::chrono::duration<double>(timeout_sec));
+                    if (future_status == std::future_status::ready) {
+                        // 再次确认 valid，因为某些实现下 wait_for 后状态可能改变
+                        if (pimpl_->last_future.valid()) {
+                            result = pimpl_->last_future.get().as<bool>();
+                        }
+                    }
+                    else {
+                        result = false;
+                    }
+                }
+            }
+            catch (const std::exception& e) {
+                // 2. 捕获异常：当调用 cancelLastTask 时，get() 会抛出异常
+                // 我们捕获它，防止程序崩溃，并认为任务未成功完成
+				std::cout << "Exception in waitOnLastTask: " << e.what() << std::endl;
+                result = false;
+                // 可以根据需要记录日志，但在底层库中通常保持静默或由调用者决定
             }
 
             if (task_result)
